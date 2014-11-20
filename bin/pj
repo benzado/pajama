@@ -1,0 +1,4 @@
+#!/usr/bin/env ruby
+require 'pajama'
+
+Pajama::Command.start(ARGV)
