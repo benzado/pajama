@@ -29,47 +29,9 @@ module Pajama
     def forecast
       client = Client.new('pajama.yml')
       db = Database.new(database_path)
-      now = DateTime.now
-
-      owners = Array.new
-      ship_date_probabilities = Hash.new { |h,k| h[k] = Hash.new(0) }
-
-      db.each_owner do |owner|
-        $stderr.print green("Simulating #{owner}")
-
-        owners << owner
-        v = Velocities.new(db, client.task_weights, owner)
-
-        100.times do
-          $stderr.print '.'
-
-          total_duration = 0
-
-          db.in_progress_cards_for(owner) do |info, tasks, work_began|
-            size = Velocities.combined_size(tasks, client.task_weights)
-            predicted_duration = size.fdiv(v.sample)
-            if work_began
-              adjustment = (now - work_began).to_f
-              if predicted_duration > adjustment
-                predicted_duration -= adjustment
-              end
-            end
-            total_duration += predicted_duration
-          end
-
-          completion_date = (now + total_duration).strftime('%m/%d/%Y')
-
-          ship_date_probabilities[completion_date][owner] += 1
-        end
-        $stderr.puts "Done"
-      end
-
-      puts "Date\t" + owners.join("\t")
-      ship_date_probabilities.each do |date, counts|
-        row = [date]
-        row.concat owners.map {|owner| counts[owner]}
-        puts row.join("\t")
-      end
+      forecast = Forecast.new(db, client.task_weights)
+      forecast.simulate
+      forecast.write($stdout)
     end
 
   private
