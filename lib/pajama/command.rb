@@ -31,7 +31,14 @@ module Pajama
       db = Database.new(database_path)
       forecast = Forecast.new(db, client.task_weights)
       forecast.simulate
+      cut_line = begin
+        terminal_width = 80
+        dash_count = (terminal_width - 8) / 4
+        ('- ' * dash_count) + 'CUT HERE' + (' -' * dash_count)
+      end
+      $stderr.puts yellow(cut_line)
       forecast.write($stdout)
+      $stderr.puts yellow(cut_line)
     end
 
   private
