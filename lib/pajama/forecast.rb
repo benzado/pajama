@@ -2,6 +2,8 @@ module Pajama
   class Forecast
     include Term::ANSIColor
 
+    SIMULATION_COUNT = 10000
+
     def initialize(db, task_weights)
       @db = db
       @task_weights = task_weights
@@ -17,8 +19,8 @@ module Pajama
         @owners << owner
         v = Velocities.new(@db, @task_weights, owner)
 
-        100.times do
-          $stderr.print '.'
+        SIMULATION_COUNT.times do |iteration|
+          $stderr.print '.' if (iteration % 100 == 0)
 
           total_duration = 0
 
@@ -50,7 +52,7 @@ module Pajama
           probability_by_owner[owner] += @ship_date_counts[date][owner]
         end
         row = [date.strftime('%m/%d/%Y')]
-        row.concat probability_by_owner.values_at(*@owners)
+        row.concat(probability_by_owner.values_at(*@owners).map { |p| (p * (100.0/SIMULATION_COUNT)).round })
         output.puts row.join("\t")
       end
     end
