@@ -41,6 +41,34 @@ module Pajama
       $stderr.puts yellow(cut_line)
     end
 
+    desc 'velocities', 'Velocity statistics'
+    def velocities
+      db = Database.new(database_path)
+      task_weights = Client.new('pajama.yml').task_weights
+      puts %w[
+        Owner
+        Min
+        Q1
+        Q3
+        Max
+        Median
+        Count
+      ].join("\t")
+      db.each_owner do |owner|
+        velocities = Velocities.new(db, task_weights, owner)
+        row = [
+          owner,
+          velocities.min,
+          velocities.q1,
+          velocities.q3,
+          velocities.max,
+          velocities.median,
+          velocities.count
+        ]
+        puts row.join("\t")
+      end
+    end
+
   private
 
     def database_path
