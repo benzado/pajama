@@ -38,6 +38,8 @@ module Pajama
 
     def owner
       @trello_card.card_members.first['username']
+    rescue NoMethodError
+      nil
     end
 
     def actions
