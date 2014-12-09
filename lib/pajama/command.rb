@@ -3,13 +3,20 @@ module Pajama
     include Term::ANSIColor
 
     desc 'fetch', 'Download card information into YAML files'
+    option 'in-progress', type: :boolean, default: nil
+    option 'completed',   type: :boolean, default: nil
     def fetch
       client = Client.new('pajama.yml')
       client.configure_trello!
-      client.in_progress_work_lists.each do |list|
-        fetch_cards(in_progress_cards_path, list.cards)
+      fetch_all = %w[in-progress completed].all? {|n| options[n].nil? }
+      if fetch_all || options['in-progress']
+        client.in_progress_work_lists.each do |list|
+          fetch_cards(in_progress_cards_path, list.cards)
+        end
       end
-      fetch_cards(completed_cards_path, client.completed_work_list.cards)
+      if fetch_all || options['completed']
+        fetch_cards(completed_cards_path, client.completed_work_list.cards)
+      end
     end
 
     desc 'import', 'Import card information into database'
