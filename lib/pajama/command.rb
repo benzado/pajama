@@ -22,8 +22,12 @@ module Pajama
     desc 'import', 'Import card information into database'
     def import
       db = Database.new(database_path)
+      @import_count = 0
+      @import_error_count = 0
       import_cards(db, in_progress_cards_path, false)
       import_cards(db, completed_cards_path, true)
+      $stderr.puts "#{@import_count} cards imported."
+      $stderr.puts "#{@import_error_count} cards failed."
     end
 
     desc 'stats', 'Report basic database stats'
@@ -60,6 +64,7 @@ module Pajama
         Max
         Median
         Count
+        AtWork
       ].join("\t")
       db.each_owner do |owner|
         velocities = Velocities.new(db, task_weights, owner)
@@ -70,7 +75,8 @@ module Pajama
           velocities.q3,
           velocities.max,
           velocities.median,
-          velocities.count
+          velocities.count,
+          velocities.at_work_ratio
         ]
         puts row.join("\t")
       end
@@ -107,8 +113,10 @@ module Pajama
         begin
           card_hash = YAML.load_file(card_path)
           db.insert_card(card_hash, is_complete)
+          @import_count += 1
         rescue DatabaseError => e
           $stderr.puts red(e.message)
+          @import_error_count += 1
         end
       end
     end

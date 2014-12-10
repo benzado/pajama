@@ -6,13 +6,18 @@ module Pajama
 
     def initialize(db, weights, owner)
       @owner = owner
-      @list = db.completed_cards_for(owner).map do |tasks, range|
+      cutoff_date = Date.today - 90
+      @at_work_ratio = db.at_work_ratio_for(owner, cutoff_date)
+      @list = db.completed_cards_for(owner, cutoff_date).map do |tasks, work_duration|
         card_size = Velocities.combined_size(tasks, weights)
-        duration = (range.end - range.begin + 1).to_f
-        card_size / duration
+        card_size / work_duration
       end
       @list.sort!
       @list.freeze
+    end
+
+    def at_work_ratio
+      @at_work_ratio
     end
 
     def sample

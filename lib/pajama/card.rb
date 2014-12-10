@@ -1,5 +1,7 @@
 module Pajama
   class Card
+    SECONDS_PER_HOUR = 3600
+
     ACTION_QUERY_OPTIONS = {
       # filter: 'all',
       filter: %w[
@@ -43,25 +45,40 @@ module Pajama
     end
 
     def actions
-      @actions ||= @trello_card.actions(ACTION_QUERY_OPTIONS).map { |ta| Action.new(@client, ta) }.sort
+      @actions ||= begin
+        @trello_card.actions(ACTION_QUERY_OPTIONS).map { |ta|
+          Action.new(@client, ta)
+        }.sort
+      end
     end
 
-    # The first time the card entered the "In Development" list
     def work_began_date
-      if a = actions.find { |a| a.target_id == @client.work_begins_in_list_id }
-        a.date
-      end
+      list_name = @client.active_work_list_name
+      action = actions.find { |a| a.target_name == list_name }
+      action.date if action
     end
 
-    # The last time the card entered the "Deployed" list
     def work_ended_date
-      if a = actions.reverse_each.find { |a| a.target_id == @client.work_ends_in_list_id }
-        a.date
-      end
+      list_name = @client.active_work_list_name
+      action = actions.reverse_each.find { |a| a.source_name == list_name }
+      action.date if action
     end
 
     def work_duration
-      (work_ended_date.to_date - work_began_date.to_date + 1).to_i
+      list_name = @client.active_work_list_name
+      actions.each_cons(2).reduce(0) do |hours_worked, consecutive_actions|
+        first_action, second_action = consecutive_actions
+        if first_action.target_name == list_name
+          if second_action.source_name == list_name
+            duration_in_seconds = (second_action.date - first_action.date)
+            hours_worked += duration_in_seconds.fdiv(SECONDS_PER_HOUR)
+          else
+            raise "incongruous actions!"
+          end
+        else
+          hours_worked
+        end
+      end
     rescue
       nil
     end
@@ -107,11 +124,11 @@ module Pajama
         'uuid'          => uuid,
         'url'           => url,
         'owner'         => owner,
+        'tasks'         => tasks,
+        'actions'       => actions.map(&:to_s),
         'work_began'    => work_began_date,
         'work_ended'    => work_ended_date,
         'work_duration' => work_duration,
-        'tasks'         => tasks,
-        'actions'       => actions.map(&:to_s)
       }
       if lint!
         h['warnings'] = @warnings

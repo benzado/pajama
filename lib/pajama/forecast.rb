@@ -3,6 +3,7 @@ module Pajama
     include Term::ANSIColor
 
     SIMULATION_COUNT = 10000
+    PRINT_DOT_EVERY = SIMULATION_COUNT / 50
 
     def initialize(db, task_weights)
       @db = db
@@ -20,24 +21,16 @@ module Pajama
         v = Velocities.new(@db, @task_weights, owner)
 
         SIMULATION_COUNT.times do |iteration|
-          $stderr.print '.' if (iteration % 100 == 0)
+          $stderr.print '.' if (iteration % PRINT_DOT_EVERY == 0)
 
           total_duration = 0
 
-          @db.in_progress_cards_for(owner) do |info, tasks, work_began|
+          @db.in_progress_cards_for(owner) do |info, tasks, work_duration|
             size = Velocities.combined_size(tasks, @task_weights)
-            predicted_duration = size.fdiv(v.sample)
-            if work_began
-              adjustment = (@now - work_began).to_f
-              if predicted_duration > adjustment
-                predicted_duration -= adjustment
-              end
-            end
-            total_duration += predicted_duration
+            total_duration += (size.fdiv(v.sample) - work_duration) / 24.0
           end
 
-          completion_date = (@now + total_duration).to_date
-
+          completion_date = (@now + (total_duration / v.at_work_ratio)).to_date
           @ship_date_counts[completion_date][owner] += 1
         end
         $stderr.puts "Done"
@@ -52,7 +45,9 @@ module Pajama
           probability_by_owner[owner] += @ship_date_counts[date][owner]
         end
         row = [date.strftime('%m/%d/%Y')]
-        row.concat(probability_by_owner.values_at(*@owners).map { |p| (p * (100.0/SIMULATION_COUNT)).round })
+        row.concat(probability_by_owner.values_at(*@owners).map { |p|
+          (p * (100.0 / SIMULATION_COUNT)).round
+        })
         output.puts row.join("\t")
       end
     end

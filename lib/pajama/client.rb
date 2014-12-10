@@ -31,12 +31,8 @@ module Pajama
       @list_ids_for_name[list_name]
     end
 
-    def work_begins_in_list_name
-      @store['work_begins_in_list']
-    end
-
-    def work_ends_in_list_name
-      @store['work_ends_in_list']
+    def active_work_list_name
+      @store['active_work_list']
     end
 
     def completed_work_list_name
@@ -47,12 +43,8 @@ module Pajama
       @store['task_weights']
     end
 
-    def work_begins_in_list_id
-      list_id_for_name(work_begins_in_list_name)
-    end
-
-    def work_ends_in_list_id
-      list_id_for_name(work_ends_in_list_name)
+    def active_work_list_id
+      list_id_for_name(active_work_list_name)
     end
 
     def completed_work_list_id

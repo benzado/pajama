@@ -24,10 +24,16 @@ module Pajama
           task_count_M   INT   NOT NULL CHECK (task_count_M >= 0) DEFAULT 0,
           task_count_L   INT   NOT NULL CHECK (task_count_L >= 0) DEFAULT 0,
           is_complete    INT   NOT NULL CHECK (is_complete IN (0, 1)),
-          work_began                    CHECK ((is_complete = 0) OR ISDATETIME(work_began)),
-          work_ended                    CHECK ((is_complete = 0) OR ISDATETIME(work_ended)),
+          work_duration  REAL,
+          work_began,
+          work_ended,
           CHECK ((task_count_S + task_count_M + task_count_L) > 0),
-          CHECK ((is_complete = 0) OR (work_began < work_ended))
+          CHECK ((is_complete = 0) OR (
+            ISDATETIME(work_began) AND
+            ISDATETIME(work_ended) AND
+            (work_began < work_ended) AND
+            (work_duration > 0)
+          ))
         )
       ]
     end
@@ -43,6 +49,7 @@ module Pajama
           :task_count_M,
           :task_count_L,
           :is_complete,
+          :work_duration,
           :work_began,
           :work_ended
         )
@@ -62,6 +69,7 @@ module Pajama
         task_count_M:  card_hash['tasks']['M'],
         task_count_L:  card_hash['tasks']['L'],
         is_complete:   is_complete ? 1 : 0,
+        work_duration: card_hash['work_duration'],
         work_began:    work_began,
         work_ended:    work_ended,
       )
@@ -78,20 +86,44 @@ module Pajama
       end
     end
 
-    def completed_cards_for(owner)
+    def at_work_ratio_for(owner, cutoff_date)
       query = %Q[
         SELECT
-          task_count_S, task_count_M, task_count_L,
-          work_began, work_ended
+          MIN(work_began),
+          MAX(work_ended),
+          SUM(work_duration)
         FROM cards
         WHERE
-          is_complete = 1 AND owner = :owner
+          is_complete = 1 AND owner = :owner AND work_began >= :cutoff
       ]
+      cutoff = cutoff_date.strftime('%Y-%m-%d')
+      at_work_ratio = 0
+      @sqlite.execute(query, owner: owner, cutoff: cutoff) do |row|
+        work_began = DateTime.parse(row[0])
+        work_ended = DateTime.parse(row[1])
+        work_duration = row[2]
+        at_work_ratio = work_duration / ((work_ended - work_began) * 24.0)
+      end
+      return at_work_ratio
+    end
+
+    def completed_cards_for(owner, cutoff_date)
+      query = %Q[
+        SELECT
+          task_count_S,
+          task_count_M,
+          task_count_L,
+          work_duration
+        FROM cards
+        WHERE
+          is_complete = 1 AND owner = :owner AND work_began >= :cutoff
+      ]
+      cutoff = cutoff_date.strftime('%Y-%m-%d')
       list = Array.new
-      @sqlite.execute(query, owner: owner) do |row|
+      @sqlite.execute(query, owner: owner, cutoff: cutoff) do |row|
         tasks = { 'S' => row[0], 'M' => row[1], 'L' => row[2] }
-        range = Range.new(DateTime.parse(row[3]), DateTime.parse(row[4]))
-        list << [tasks, range]
+        work_duration = row[3]
+        list << [tasks, work_duration]
       end
       return list
     end
@@ -105,7 +137,7 @@ module Pajama
           task_count_S,
           task_count_M,
           task_count_L,
-          work_began
+          work_duration
         FROM cards
         WHERE
           is_complete = 0 AND owner = :owner
@@ -117,31 +149,81 @@ module Pajama
           'url' => row[2],
         }
         tasks = { 'S' => row[3], 'M' => row[4], 'L' => row[5] }
-        work_began = DateTime.parse(row[6]) unless row[6].nil?
-        yield info, tasks, work_began
+        work_duration = row[6]
+        yield info, tasks, work_duration
       end
     end
 
     def print_stats(out)
-      statement = @sqlite.prepare(%Q[
-        SELECT owner,
-          COUNT(*)          AS n_cards,
-          SUM(is_complete)  AS n_complete_cards,
-          AVG(task_count_S) AS mean_S,
-          AVG(task_count_M) AS mean_M,
-          AVG(task_count_L) AS mean_L,
-          MIN(work_began)   AS earliest_began,
-          MAX(work_ended)   AS latest_end
+      averages_query = %Q{
+        SELECT
+          owner,
+          CASE is_complete WHEN 0 THEN 'inc' ELSE 'com' END,
+          COUNT(*),
+          AVG(task_count_S),
+          AVG(task_count_M),
+          AVG(task_count_L),
+          AVG(work_duration)
         FROM cards
+        GROUP BY is_complete, owner
+        ORDER BY is_complete, owner
+      }
+      averages_format = {
+        'owner'.ljust(13) => '%-13s',
+        ' ? ' => '%3s',
+        '  N' => '%3d',
+        ' mS' => '%3.1f',
+        ' mM' => '%3.1f',
+        ' mL' => '%3.1f',
+        ' mD' => '%3.0f',
+      }
+      out.puts
+      out.puts 'AVERAGES'
+      out.puts
+      print_table(out, averages_query, averages_format)
+
+      completed_query = %Q{
+        SELECT
+          owner,
+          MIN(work_began),
+          MAX(work_ended),
+          SUM(work_duration)
+        FROM cards
+        WHERE is_complete = 1
         GROUP BY owner
         ORDER BY owner
-      ])
-      statement.execute do |result|
-        out.printf "%-14s %3s %3s %3s %3s %3s  %-19s  %-19s\n",
-          'owner', 'N', 'Nc', 'mS', 'mM', 'mL', 'earliest began', 'latest end'
-        result.each do |row|
-          out.printf "%-14s %3d %3d %3.1f %3.1f %3.1f  %19s  %19s\n", *row
+      }
+      completed_format = {
+        'owner'.ljust(13) => '%-13s',
+        'earliest began'.ljust(19) => '%19s',
+        'latest ended'.ljust(19) => '%19s',
+        ' sD' => '%3.0f',
+        'hours' => '%5.0f',
+        'work%' => '%5.1f',
+      }
+      out.puts
+      out.puts 'COMPLETED WORK'
+      out.puts
+      print_table(out, completed_query, completed_format) do |row|
+        earliest_began = DateTime.parse(row[1])
+        latest_ended = DateTime.parse(row[2])
+        sum_duration = row[3]
+        total_hours = 24.0 * (latest_ended - earliest_began)
+        accounted_time = 100.0 * sum_duration / total_hours
+        row + [total_hours, accounted_time]
+      end
+      out.puts
+    end
+
+    def print_table(out, query, format)
+      row_format = format.values.join(' ') + "\n"
+      out.puts format.keys.join(' ')
+      out.puts format.keys.map{ |t| '-' * t.length }.join(' ')
+      @sqlite.execute(query) do |row|
+        if block_given?
+          row = yield(row)
         end
+        out.printf row_format, *row
       end
     end
   end
